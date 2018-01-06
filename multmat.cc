@@ -145,10 +145,9 @@ void dns(int* matLocA, int* matLocB, int*& matLocC, int nloc, int n, int pid, in
 
     matIncrProduct(matLocA, matLocB, nloc, matLocC);
 
-    int* result = new int[nloc * nloc];
-    MPI_Reduce(matLocC, result, nloc*nloc, MPI_INT, MPI_SUM, 0, kCast);
-
-    matLocC = result;
+    int* reduced = new int[nloc * nloc];
+    MPI_Reduce(matLocC, reduced, nloc * nloc, MPI_INT, MPI_SUM, 0, kCast);
+    matLocC = reduced;
 }
 
 int main(int argc,char** argv) {
