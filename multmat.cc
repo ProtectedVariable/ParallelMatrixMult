@@ -42,11 +42,11 @@ int* randomInit(int size,int inf,int sup) {
 }
 
 
-void matProduct(int* A, int rowA, int colA, int* B, int rowB, int colB, int*& C) {
-    for (int i = 0; i < rowA; i++) {
-        for (int j = 0; j < colB; j++) {
-            for (int k = 0; k < rowB; k++) {
-                C[i * colB + j] += A[i * colA + k] * B[k * colB + j];
+void matIncrProduct(int* A, int* B, int dim, int* C) {
+    for (int i = 0; i < dim; i++) {
+        for (int j = 0; j < dim; j++) {
+            for (int k = 0; k < dim; k++) {
+                C[i * dim + j] += A[i * dim + k] * B[k * dim + j];
             }
         }
     }
@@ -59,9 +59,6 @@ void fox(int* matLocA, int* matLocB, int* matLocC, int nloc, int n, int pid) {
     int dim = sqrt(n);
     int row = pid / dim;
 
-    int dest = (pid + (dim - 1) * dim) % (dim * dim);
-    int source = (pid + dim) % (dim * dim);
-
     MPI_Comm rowCast;
     MPI_Comm_split(MPI_COMM_WORLD, row, pid, &rowCast);
 
@@ -70,19 +67,22 @@ void fox(int* matLocA, int* matLocB, int* matLocC, int nloc, int n, int pid) {
     for (int i = 0; i < nloc * nloc; i++) {
         Sk[i] = matLocB[i];
     }
+
+    int dstS = (pid + (dim - 1) * dim) % n;
+    int srcS = (pid + dim) % n;
+
     int* Tk = new int[nloc * nloc];
     for (int k = 0; k < dim; k++) {
-
         for (int i = 0; i < nloc * nloc; i++) {
             Tk[i] = matLocA[i];
         }
         MPI_Bcast(Tk, nloc * nloc , MPI_INT, (row + k) % dim, rowCast);
 
         if(k > 0) {
-            MPI_Send(Sk, nloc * nloc, MPI_INT, dest, 0, MPI_COMM_WORLD);
-            MPI_Recv(Sk, nloc * nloc, MPI_INT, source, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(Sk, nloc * nloc, MPI_INT, dstS, 0, MPI_COMM_WORLD);
+            MPI_Recv(Sk, nloc * nloc, MPI_INT, srcS, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
-        matProduct(Tk, nloc, nloc, Sk, nloc, nloc, matLocC);
+        matIncrProduct(Tk, Sk, nloc, matLocC);
     }
     delete[] Tk;
     delete[] Sk;
@@ -94,67 +94,61 @@ void cannon(int* matLocA, int* matLocB, int* matLocC, int nloc, int n, int pid) 
     int row = pid / dim;
     int col = pid % dim;
 
-    int destT = ((pid + (dim - 1)) % dim) + (dim * row);
-    int sourceT = ((pid + 1) % dim) + (dim * row);
+    int dstT = ((pid + (dim - 1)) % dim) + (dim * row);
+    int srcT = ((pid + 1) % dim) + (dim * row);
 
-    int destS = (pid + (dim - 1) * dim) % (dim * dim);
-    int sourceS = (pid + dim) % (dim * dim);
+    int dstS = (pid + (dim - 1) * dim) % n;
+    int srcS = (pid + dim) % n;
 
     int* Tk = new int[nloc * nloc];
 	int* Sk = new int[nloc * nloc];
-    for (int i = 0; i < dim * dim; i++) {
+    //T0 = A
+    //S0 = B
+    for (int i = 0; i < n; i++) {
         Tk[i] = matLocA[i];
 		Sk[i] = matLocB[i];
     }
-
     for (int k = 0; k < dim; k++) {
     	if(k == 0) {
-			if ((row + 1) != dim){
-				int destT0 = ((pid + (dim - (row + 1))) % dim) + (dim * row);
-				int sourceT0 = ((pid + (row + 1)) % dim) + (dim * row);
-
-				MPI_Send(Tk, nloc * nloc, MPI_INT, destT0 , 0, MPI_COMM_WORLD);
-				MPI_Recv(Tk, nloc * nloc, MPI_INT, sourceT0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            //No shift on the last row at k = 0
+			if (row < dim - 1){
+				MPI_Send(Tk, nloc * nloc, MPI_INT, ((pid + (dim - (row + 1))) % dim) + (dim * row) , 0, MPI_COMM_WORLD);
+				MPI_Recv(Tk, nloc * nloc, MPI_INT, ((pid + row + 1) % dim) + (dim * row), 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			}
-
-			if((col + 1) != dim) {
-				int destS0 = (pid + (dim - (col + 1)) * dim) % (dim * dim);
-				int sourceS0 = (pid + (dim * (col + 1))) % (dim * dim);
-
-				MPI_Send(Sk, nloc * nloc, MPI_INT, destS0 , 0, MPI_COMM_WORLD);
-				MPI_Recv(Sk, nloc * nloc, MPI_INT, sourceS0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            //No shift on the last column at k = 0
+			if(col < dim - 1) {
+				MPI_Send(Sk, nloc * nloc, MPI_INT, (pid + (dim - (col + 1)) * dim) % n , 0, MPI_COMM_WORLD);
+				MPI_Recv(Sk, nloc * nloc, MPI_INT, (pid + dim * (col + 1)) % n, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			}
     	} else {
-			MPI_Send(Tk, nloc * nloc, MPI_INT, destT , 0, MPI_COMM_WORLD);
-			MPI_Recv(Tk, nloc * nloc, MPI_INT, sourceT, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Send(Tk, nloc * nloc, MPI_INT, dstT , 0, MPI_COMM_WORLD);
+			MPI_Recv(Tk, nloc * nloc, MPI_INT, srcT, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-			MPI_Send(Sk, nloc * nloc, MPI_INT, destS , 0, MPI_COMM_WORLD);
-			MPI_Recv(Sk, nloc * nloc, MPI_INT, sourceS, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Send(Sk, nloc * nloc, MPI_INT, dstS , 0, MPI_COMM_WORLD);
+			MPI_Recv(Sk, nloc * nloc, MPI_INT, srcS, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     	}
-        matProduct(Tk, nloc, nloc, Sk, nloc, nloc, matLocC);
+        matIncrProduct(Tk, Sk, nloc, matLocC);
     }
     delete[] Tk;
 	delete[] Sk;
 }
 
-void dns(int* matLocA, int* matLocB, int* matLocC, int nloc, int n, int pid, int p) {
+void dns(int* matLocA, int* matLocB, int*& matLocC, int nloc, int n, int pid, int p) {
 
-    MPI_Comm comm_a, comm_b, comm_c;
-    MPI_Comm_split(MPI_COMM_WORLD, pid % p + ((pid / (p * p)) * (p * p)), pid, &comm_a);
-    MPI_Comm_split(MPI_COMM_WORLD, pid % (p * p), pid, &comm_b);
-    MPI_Comm_split(MPI_COMM_WORLD, pid / p, pid, &comm_c);
+    MPI_Comm iCast, jCast, kCast;
+    MPI_Comm_split(MPI_COMM_WORLD, pid % (p * p), pid, &iCast);
+    MPI_Comm_split(MPI_COMM_WORLD, pid % p + pid, pid, &jCast);
+    MPI_Comm_split(MPI_COMM_WORLD, pid / p, pid, &kCast);
 
-    MPI_Bcast(matLocA, nloc * nloc, MPI_INT, 0, comm_a);
-    MPI_Bcast(matLocB, nloc * nloc, MPI_INT, 0, comm_b);
+    MPI_Bcast(matLocB, nloc * nloc, MPI_INT, 0, iCast);
+    MPI_Bcast(matLocA, nloc * nloc, MPI_INT, 0, jCast);
 
-    matProduct(matLocA, nloc, nloc, matLocB, nloc, nloc, matLocC);
+    matIncrProduct(matLocA, matLocB, nloc, matLocC);
 
     int* result = new int[nloc * nloc];
-    MPI_Reduce(matLocC, result, nloc*nloc, MPI_INT, MPI_SUM, 0, comm_c);
+    MPI_Reduce(matLocC, result, nloc*nloc, MPI_INT, MPI_SUM, 0, kCast);
 
-    for (int i = 0; i < nloc * nloc; i++) {
-        matLocC[i] = result[i];
-    }
+    matLocC = result;
 }
 
 int main(int argc,char** argv) {
