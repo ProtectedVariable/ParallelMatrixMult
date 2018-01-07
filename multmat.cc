@@ -41,7 +41,6 @@ int* randomInit(int size,int inf,int sup) {
    return mat;
 }
 
-
 void matIncrProduct(int* A, int* B, int dim, int* C) {
     for (int i = 0; i < dim; i++) {
         for (int j = 0; j < dim; j++) {
@@ -133,12 +132,12 @@ void cannon(int* matLocA, int* matLocB, int* matLocC, int nloc, int n, int pid) 
 	delete[] Sk;
 }
 
-void dns(int* matLocA, int* matLocB, int*& matLocC, int nloc, int n, int pid, int p) {
+void dns(int* matLocA, int* matLocB, int*& matLocC, int nloc, int n, int pid, int p, int i, int j, int k) {
 
     MPI_Comm iCast, jCast, kCast;
-    MPI_Comm_split(MPI_COMM_WORLD, pid % (p * p), pid, &iCast);
-    MPI_Comm_split(MPI_COMM_WORLD, pid % p + pid, pid, &jCast);
-    MPI_Comm_split(MPI_COMM_WORLD, pid / p, pid, &kCast);
+    MPI_Comm_split(MPI_COMM_WORLD, j * p + k, pid, &iCast);
+    MPI_Comm_split(MPI_COMM_WORLD, i * p + k, pid, &jCast);
+    MPI_Comm_split(MPI_COMM_WORLD, i * p + j, pid, &kCast);
 
     MPI_Bcast(matLocB, nloc * nloc, MPI_INT, 0, iCast);
     MPI_Bcast(matLocA, nloc * nloc, MPI_INT, 0, jCast);
@@ -147,6 +146,7 @@ void dns(int* matLocA, int* matLocB, int*& matLocC, int nloc, int n, int pid, in
 
     int* reduced = new int[nloc * nloc];
     MPI_Reduce(matLocC, reduced, nloc * nloc, MPI_INT, MPI_SUM, 0, kCast);
+    delete[] matLocC;
     matLocC = reduced;
 }
 
@@ -183,7 +183,7 @@ int main(int argc,char** argv) {
           MPI_Comm_split(MPI_COMM_WORLD, i, (myPE%p)*p+myPE/p, &comm_i_cte);
           int k = myPE%p;      // C_{ij} sur les P_{ij0}
           MPI_Comm_split(MPI_COMM_WORLD, k, myPE, &comm_k_cte);
-          dns(matLocA, matLocB, matLocC, nloc, nbPE, myPE, p);
+          dns(matLocA, matLocB, matLocC, nloc, nbPE, myPE, p, i, j, k);
    }
    printAll(matLocA,nloc,comm_j_cte,"%matrice complete A\n");
    printAll(matLocB,nloc,comm_i_cte,"%matrice complete B\n");
